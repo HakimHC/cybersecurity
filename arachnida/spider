@@ -49,7 +49,7 @@ class Args:
             "-l",
             "--depth",
             type=int,
-            default=1,  # 1 means non-recursive. If -r is specified, the default is 5.
+            default=None,
             help="Maximum depth level of the recursive download. (Default: 5)",
         )
 
@@ -69,13 +69,13 @@ class Args:
 
         parsed = parser.parse_args()
 
-        if parsed.depth != 1 and not parsed.recursive:  # pyright: ignore[reportAny]
+        if parsed.depth is not None and not parsed.recursive:  # pyright: ignore[reportAny]
             parser.error("--depth required --recursive")
 
-        if parsed.recursive and parsed.depth == 1:  # pyright: ignore[reportAny]
+        if parsed.recursive and parsed.depth is None:  # pyright: ignore[reportAny]
             parsed.depth = 5
 
-        if parsed.depth != 1 and not (2 <= parsed.depth <= Args._MAX_DEPTH):
+        if parsed.depth is not None and not (2 <= parsed.depth <= Args._MAX_DEPTH):
             parser.error(f"--depth must be between 2 and {Args._MAX_DEPTH}")
 
         return Args(
