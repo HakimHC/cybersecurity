@@ -1,0 +1,133 @@
+#! /usr/bin/env python3
+
+import argparse
+from dataclasses import dataclass, field
+import sys
+from PIL import Image
+from pathlib import Path
+import os
+from PIL.ExifTags import TAGS
+from datetime import datetime
+from typing import ClassVar, override
+
+
+def _format_size(size_bytes: float) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if size_bytes < 1024:
+            return f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} TB"
+
+
+def _format_timestamp(ts: float) -> str:
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+
+@dataclass
+class Args:
+    files: list[str]
+
+    @staticmethod
+    def parse() -> "Args":
+        parser = argparse.ArgumentParser(
+            description="Display basic image metadata, including EXIF"
+        )
+
+        _ = parser.add_argument(
+            "files", nargs="+", help="Files to analyze for metadata"
+        )
+        parsed = parser.parse_args()
+        return Args(files=parsed.files)  # pyright: ignore[reportAny]
+
+
+@dataclass
+class ImageMetadata:
+    SUPPORTED_FORMATS: ClassVar[frozenset[str]] = frozenset(
+        {"JPEG", "PNG", "GIF", "BMP"}
+    )
+
+    class UnsupportedFormatError(Exception):
+        def __init__(self, fmt: str) -> None:
+            supported = ", ".join(sorted(ImageMetadata.SUPPORTED_FORMATS))
+            super().__init__(
+                f"Unsupported format '{fmt}'. Supported formats: {supported}"
+            )
+
+    filename: str
+    creation_date: str
+    modification_date: str
+    size_bytes: int
+    size_human: str
+    format: str
+    mode: str
+    width: int
+    height: int
+    exif: dict[str, str] | None = field(default=None)
+
+    @classmethod
+    def from_file(cls, path: str | Path) -> "ImageMetadata":
+        stat = os.stat(path)
+        creation_ts = (
+            stat.st_birthtime if hasattr(stat, "st_birthtime") else stat.st_ctime
+        )
+
+        with Image.open(path) as img:
+            if img.format not in ImageMetadata.SUPPORTED_FORMATS:
+                raise ImageMetadata.UnsupportedFormatError(img.format or "unknown")
+
+            try:
+                raw_exif = img.getexif()
+            except AttributeError:
+                raw_exif = None
+
+            exif = (
+                {
+                    TAGS.get(tag, str(tag)): str(value)  # pyright: ignore[reportAny]
+                    for tag, value in raw_exif.items()  # pyright: ignore[reportAny]
+                    if TAGS.get(tag)
+                }
+                if raw_exif
+                else None
+            )
+
+            return cls(
+                filename=os.path.basename(path),
+                creation_date=_format_timestamp(creation_ts),
+                modification_date=_format_timestamp(stat.st_mtime),
+                size_bytes=stat.st_size,
+                size_human=_format_size(stat.st_size),
+                format=img.format,
+                mode=img.mode,
+                width=img.width,
+                height=img.height,
+                exif=exif,
+            )
+
+    @override
+    def __str__(self) -> str:
+        lines = [
+            f"=== {self.filename} ===",
+            f"- Creation Date: {self.creation_date}",
+            f"- Modification Date: {self.modification_date}",
+            f"- Size: {self.size_human} ({self.size_bytes:,} bytes)",
+            f"- Format: {self.format}",
+            f"- Mode: {self.mode}",
+            f"- Dimensions: {self.width} x {self.height}",
+        ]
+
+        if self.exif:
+            lines.append("\n- EXIF Tags:")
+            for tag, val in self.exif.items():
+                lines.append(f"  - {tag}: {val}")
+
+        return "\n".join(lines)
+
+
+if __name__ == "__main__":
+    args = Args.parse()
+    for file in args.files:
+        try:
+            img = ImageMetadata.from_file(file)
+            print(img, end="\n\n")
+        except Exception as e:
+            print(f"Error while processing {file}: {e}", file=sys.stderr)
