@@ -205,12 +205,14 @@ if __name__ == "__main__":
     args = Args.parse()
     try:
         os.makedirs(args.path, exist_ok=True)
-        crawl(args.url, args.depth, args)
+        crawl(args.url, args.depth or 1, args)
         exit(0)
     except RecursionError:
         logging.fatal("fatal: Recursion limit hit.")
     except PermissionError as e:
         logging.fatal(f"Could not create directory: {e}")
+    except KeyboardInterrupt:
+        logging.info("Keyboard interrupt. Exiting...")
     except Exception as e:
         logging.fatal(f"Unexpected error: {e}")
     exit(1)
